@@ -1,10 +1,14 @@
 # utils/retriever.py
 import requests
 import json
+import os
+from dotenv import load_dotenv
 
-QDRANT_URL = "https://ee883337-0943-4db9-99d5-9bd1365c2541.us-east4-0.gcp.cloud.qdrant.io"
-QDRANT_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.atlxdgC9NOgHHQKh4tiLlTSTcJIVNYzaNczuANYaPf8"
-COLLECTION_NAME = "Doctor's data"  
+load_dotenv()
+
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME")  
 
 def search_qdrant(vector, top_k=5):
     if not isinstance(vector, list) or not all(isinstance(x, float) for x in vector):

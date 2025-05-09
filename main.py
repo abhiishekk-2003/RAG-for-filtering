@@ -6,6 +6,10 @@ from utils.embedder import get_embedding
 from utils.qdrant_utils import upsert_vectors, create_collection
 import uuid
 from docx import Document
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # For retrieveing and asking a question
 from utils.embed_query import embed_query
@@ -15,7 +19,7 @@ from utils.groq_llm import ask_llama3
 from qdrant_client.http import models as rest
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upload_here")
-COLLECTION_NAME = "Doctor's data"
+COLLECTION_NAME = os.getenv("COLLECTION_NAME")
 VECTOR_SIZE = 384  # GTE-small outputs 384-d vectors
 
 def load_text_from_file(file_path):
@@ -124,8 +128,8 @@ def run_ingestion_pipeline():
         #Checking if files is already in DB
         from qdrant_client import QdrantClient
         client = QdrantClient(
-            url="https://ee883337-0943-4db9-99d5-9bd1365c2541.us-east4-0.gcp.cloud.qdrant.io", 
-            api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.atlxdgC9NOgHHQKh4tiLlTSTcJIVNYzaNczuANYaPf8"
+            url=os.getenv("QDRANT_URL"), 
+            api_key=os.getenv("QDRANT_API_KEY")
         )
 
         #Finding at least one point with this source

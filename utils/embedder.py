@@ -1,7 +1,11 @@
 # embedder.py
 import requests
+import os
+from dotenv import load_dotenv
 
-HUGGINGFACE_API_TOKEN = "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"
+load_dotenv()
+
+HUGGINGFACE_API_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
 

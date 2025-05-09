@@ -1,8 +1,12 @@
 # groq_llm.py
 import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions" 
-GROQ_API_KEY = "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"  
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")  
 
 def ask_llama3(context, question):
     headers = {
