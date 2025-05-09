@@ -1,0 +1,8 @@
+InstructorEmbedding
+qdrant-client
+PyMuPDF
+python-docx
+openai
+streamlit
+fastapi
+uvicorn

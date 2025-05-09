@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Document Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            background: linear-gradient(135deg, #e0e7ff, #f0fdf4);
+            margin: 0;
+            padding: 40px 20px;
+            color: #333;
+        }
+    
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 30px;
+            color: #111827;
+        }
+    
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 30px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+    
+        .column {
+            flex: 1 1 400px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 25px;
+            border-radius: 16px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+    
+        .column:hover {
+            transform: translateY(-5px);
+        }
+    
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #1f2937;
+        }
+    
+        .file-list {
+            margin-top: 20px;
+            border-top: 1px solid #ddd;
+            padding-top: 10px;
+        }
+    
+        .file-item {
+            background-color: #f9fafb;
+            padding: 10px;
+            margin-bottom: 6px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+    
+        .flash-messages {
+            background-color: #e0f2fe;
+            border: 1px solid #90cdf4;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            color: #0c4a6e;
+            font-weight: 500;
+        }
+    
+        .answer-box {
+            background-color: #f3f4f6;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #cbd5e1;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            color: #1e293b;
+        }
+    
+        input[type="text"],
+        input[type="file"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            background-color: #ffffff;
+            transition: border-color 0.2s;
+        }
+    
+        input[type="text"]:focus,
+        textarea:focus {
+            border-color: #6366f1;
+            outline: none;
+        }
+    
+        textarea {
+            resize: vertical;
+            min-height: 140px;
+        }
+    
+        button,
+        input[type="submit"] {
+            background: linear-gradient(to right, #6366f1, #4f46e5);
+            color: white;
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: background 0.3s ease, transform 0.2s ease;
+        }
+    
+        button:hover,
+        input[type="submit"]:hover {
+            background: linear-gradient(to right, #4338ca, #3730a3);
+            transform: scale(1.03);
+        }
+    
+        .clear-btn {
+            background: linear-gradient(to right, #ef4444, #dc2626);
+            margin-top: 10px;
+        }
+    
+        .clear-btn:hover {
+            background: linear-gradient(to right, #b91c1c, #991b1b);
+        }
+    
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>    
+</head>
+<body>
+
+    <h1>🧠 RAG Document Assistant</h1>
+
+    {% if get_flashed_messages() %}
+    <div class="flash-messages">
+        {% for message in get_flashed_messages() %}
+            <p>{{ message }}</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="container">
+        <div class="column">
+            <h2>📁 Upload Documents</h2>
+            <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" multiple accept=".pdf,.docx,.txt">
+                <input type="submit" value="Upload and Process">
+            </form>
+
+            <div class="file-list">
+                <h3>📄 Uploaded Files</h3>
+                {% if files %}
+                    {% for file in files %}
+                        <div class="file-item">{{ file }}</div>
+                    {% endfor %}
+                    <form action="{{ url_for('clear_uploads') }}" method="post">
+                        <button type="submit" class="clear-btn">🗑️ Clear All Files</button>
+                    </form>
+                {% else %}
+                    <p>No files uploaded yet.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="column">
+            <h2>❓ Ask a Question</h2>
+            <form action="{{ url_for('ask_question') }}" method="post">
+                <textarea name="question" placeholder="Ask something about your uploaded documents...">{{ session.get('question', '') }}</textarea>
+                <input type="submit" value="Ask">
+            </form>
+
+            {% if session.get('answer') %}
+                <h3>✅ Answer:</h3>
+                <div class="answer-box">{{ session.get('answer') }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+</body>
