@@ -1,8 +1,8 @@
-InstructorEmbedding
+pdfplumber
+requests
+python-dotenv
 qdrant-client
-PyMuPDF
-python-docx
-openai
-streamlit
-fastapi
-uvicorn
+docx
+uuid
+beautifulsoup4
+lxml

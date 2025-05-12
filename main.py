@@ -24,9 +24,29 @@ VECTOR_SIZE = 384  # GTE-small outputs 384-d vectors
 
 def load_text_from_file(file_path):
     ext = os.path.splitext(file_path)[-1].lower()
-    text = ""
+    if ext == ".json":
+        import json
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-    if ext == ".pdf":
+            contents = []
+            if isinstance(data, dict) and "webSearchResults" in data:
+                for entry in data["webSearchResults"]:
+                    if isinstance(entry, list):
+                        for item in entry:
+                            if isinstance(item, dict) and "content" in item:
+                                cleaned = item["content"].replace("\n", " ").strip()
+                                if cleaned:
+                                    contents.append(cleaned)
+
+            return contents
+
+        except Exception as e:
+            print(f"Failed to read JSON file: {file_path}\nError: {str(e)}")
+            return []
+        
+    elif ext == ".pdf":
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
                 text += page.extract_text() or ""
@@ -39,76 +59,40 @@ def load_text_from_file(file_path):
     elif ext == ".txt":
         with open(file_path, "r", encoding="utf-8") as f:
             text = f.read()
-
-    elif ext == ".json":
-        import json
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            lines = []
-            if isinstance(data, dict) and "webSearchResults" in data:
-                for entry in data["webSearchResults"]:
-                    if isinstance(entry, list):
-                        for item in entry:
-                            if isinstance(item, dict) and "content" in item:
-                                from bs4 import BeautifulSoup
-                                import re
-
-                                raw = item["content"]
-                                # Basic de-noising
-                                cleaned = raw.replace("\n", " ").replace("  ", " ").strip()
-
-                                # Optionally remove repeated words or patterns
-                                cleaned = re.sub(r"\b(\w+)( \1\b)+", r"\1", cleaned)  # removes repeated words
-                                cleaned = re.sub(r"[^\w\s,.:-]", "", cleaned)         # remove stray characters
-
-                                # Optional: If there's HTML in content
-                                # cleaned = BeautifulSoup(raw, "html.parser").get_text()
-
-                                lines.append(cleaned)
-
-
-            text = "\n".join(lines)
-
-        except Exception as e:
-            print(f"Failed to read JSON file: {file_path}")
-            print("Error:", str(e))
-            text = ""  # fallback to empty so your pipeline continues
-
-    return text
-
-
+            return [text] if text.strip() else []
+    else:
+        raise ValueError(f"Unsupported file type: {ext}")    
 
 def chunk_text(text, chunk_size=300):
     words = text.split()
     for i in range(0, len(words), chunk_size):
         yield " ".join(words[i:i + chunk_size])
 
-def embed_chunks(chunks, filename):
+def embed_chunks(contents, filename):
     points = []
-    for chunk in chunks:
-        embedding = get_embedding(chunk)
+    absolute_chunk_index = 0
 
-        # HF API wraps the embedding in another list — extract the vector
-        if isinstance(embedding, list) and isinstance(embedding[0], list):
-            embedding = embedding[0]
+    for content_idx, content in enumerate(contents):
+        for relative_idx, chunk in enumerate(chunk_text(content)):
+            embedding = get_embedding(chunk)
+            if isinstance(embedding, list) and isinstance(embedding[0], list):
+                embedding = embedding[0]
+            if len(embedding) != 384:
+                raise ValueError("Invalid embedding length")
 
-        #Validating length
-        if len(embedding) != 384:
-            raise ValueError(f"Invalid embedding length: {len(embedding)}")
-
-        point = {
-            "id": str(uuid.uuid4()),  # Use UUID, not file name ID as Qdrant not supports that format
-            "vector": embedding,
-            "payload": {
-                "text": chunk,
-                "source": filename
+            point = {
+                "id": str(uuid.uuid4()),
+                "vector": embedding,
+                "payload": {
+                    "text": chunk,
+                    "source": filename,
+                    "content_id": f"{filename}_content_{content_idx+1}",
+                    "chunk_index": relative_idx,
+                    "absolute_index": absolute_chunk_index
+                }
             }
-
-        }
-
-        points.append(point)
+            points.append(point)
+            absolute_chunk_index += 1
 
     return points
 
@@ -153,9 +137,9 @@ def run_ingestion_pipeline():
         #Files to split and store
         file_path = os.path.join(UPLOAD_FOLDER, filename)
         print(f" Processing: {filename}")
-        text = load_text_from_file(file_path)
-        chunks = list(chunk_text(text))
-        vectors = embed_chunks(chunks, filename)
+        contents = load_text_from_file(file_path)
+        vectors = embed_chunks(contents, filename)
+        
         response = upsert_vectors(COLLECTION_NAME, vectors)
         print("Qdrant upsert response:", response)
         print(" Uploaded", len(vectors), "vectors for", filename, "\n")
@@ -170,7 +154,7 @@ def run_rag_pipeline(user_question):
     return answer
 
 if __name__ == "__main__":
-    mode = input("Choose mode: [1] Ingest PDFs  [2] Ask a Question: ").strip()
+    mode = input("Choose mode: [1] Ingest Files  [2] Ask a Question: ").strip()
 
     if mode == "1":
         run_ingestion_pipeline()
