@@ -9,3 +9,5 @@ __pycache__/
 # VS Code and system files
 .vscode/
 .DS_Store
+.venv
+.env
