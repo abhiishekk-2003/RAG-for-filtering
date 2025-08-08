@@ -169,22 +169,109 @@ def upsert_vectors(collection_name, points):
     response = requests.put(url, headers=QDRANT_HEADERS, json=payload)
     return response.json()
 
-# Create Qdrant Collection
+# Create Qdrant Collection with Index
 def create_collection(collection_name, vector_size):
     url = f"{QDRANT_URL}/collections/{collection_name}"
-    payload = {"vectors": {"size": vector_size, "distance": "Cosine"}}
+    payload = {
+        "vectors": {
+            "size": vector_size, 
+            "distance": "Cosine"
+        }
+    }
     response = requests.put(url, headers=QDRANT_HEADERS, json=payload)
     return response.json()
 
+# Create Index for Source Field
+def create_source_index(collection_name):
+    """Create an index for the 'source' field to enable filtering"""
+    url = f"{QDRANT_URL}/collections/{collection_name}/index"
+    payload = {
+        "field_name": "source",
+        "field_schema": "keyword"
+    }
+    response = requests.put(url, headers=QDRANT_HEADERS, json=payload)
+    return response.json()
+
+# Check if collection exists
+def collection_exists(collection_name):
+    """Check if a collection exists"""
+    url = f"{QDRANT_URL}/collections/{collection_name}"
+    try:
+        response = requests.get(url, headers=QDRANT_HEADERS)
+        return response.status_code == 200
+    except:
+        return False
+
+# Alternative method to check for existing files without filtering
+def get_all_sources_in_collection(client, collection_name):
+    """Get all unique sources in the collection by scrolling through all points"""
+    existing_sources = set()
+    offset = None
+    
+    while True:
+        try:
+            scroll_result = client.scroll(
+                collection_name=collection_name,
+                limit=100,
+                offset=offset,
+                with_payload=True
+            )
+            
+            points, next_offset = scroll_result
+            
+            for point in points:
+                if "source" in point.payload:
+                    existing_sources.add(point.payload["source"])
+            
+            if next_offset is None:
+                break
+            offset = next_offset
+            
+        except Exception as e:
+            print(f"Error scrolling collection: {e}")
+            break
+    
+    return existing_sources
+
 # Ingestion Pipeline
 def run_ingestion_pipeline():
-    create_collection(COLLECTION_NAME, VECTOR_SIZE)
+    # Check if collection exists, if not create it
+    if not collection_exists(COLLECTION_NAME):
+        print(f"Creating collection: {COLLECTION_NAME}")
+        create_collection(COLLECTION_NAME, VECTOR_SIZE)
+    
+    # Create index for source field (this is idempotent - won't fail if index already exists)
+    print(f"Creating index for 'source' field...")
+    try:
+        create_source_index(COLLECTION_NAME)
+        print("Index created successfully")
+    except Exception as e:
+        print(f"Index creation info: {e}")  # This might fail if index already exists, which is okay
+    
     if not os.path.exists(UPLOAD_FOLDER):
         print(f"Folder '{UPLOAD_FOLDER}' not found.")
         return
+
+    # Initialize Qdrant client
+    client = QdrantClient(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY
+    )
+
+    # Get existing sources using the alternative method
+    print("Checking for existing files...")
+    existing_sources = get_all_sources_in_collection(client, COLLECTION_NAME)
+    print(f"Found {len(existing_sources)} existing files in collection")
+
     for filename in os.listdir(UPLOAD_FOLDER):
         if not filename.lower().endswith((".pdf", ".docx", ".txt", ".json")):
             continue
+
+        if filename in existing_sources:
+            print(f"Skipping '{filename}' — already uploaded.\n")
+            continue
+
+        # Process and upload the file
         file_path = os.path.join(UPLOAD_FOLDER, filename)
         print(f"Processing: {filename}")
         contents = load_text_from_file(file_path)

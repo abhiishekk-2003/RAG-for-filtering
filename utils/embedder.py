@@ -1,4 +1,4 @@
-# embedder.py
+# utils/embedder.py
 import requests
 import os
 from dotenv import load_dotenv
@@ -15,6 +15,7 @@ headers = {
 }
 
 def get_embedding(text: str):
+    """Get embedding for a single text string"""
     payload = {"inputs": [text]}  # Text must be in a list
 
     response = requests.post(API_URL, headers=headers, json=payload)
@@ -25,7 +26,11 @@ def get_embedding(text: str):
 
     result = response.json()
 
-    if isinstance(result, list) and isinstance(result[0], list):
-        return result[0]
-
+    # Handle the response format
+    if isinstance(result, list):
+        if isinstance(result[0], list):
+            return result[0]  # Return the first embedding if it's a nested list
+        else:
+            return result  # Return as is if it's already a flat list
+    
     raise ValueError("Unexpected response format from Hugging Face API")

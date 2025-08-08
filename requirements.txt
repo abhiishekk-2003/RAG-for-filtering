@@ -6,3 +6,4 @@ docx
 uuid
 beautifulsoup4
 lxml
+flask
