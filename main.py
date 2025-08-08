@@ -3,20 +3,21 @@
 import os
 import pdfplumber
 from utils.embedder import get_embedding
-from utils.qdrant_utils import upsert_vectors, create_collection
+from utils.qdrant_utils import upsert_vectors, create_collection, create_source_index, collection_exists
 import uuid
 from docx import Document
-import os
+import json
 from dotenv import load_dotenv
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as rest
 
-load_dotenv()
-
-# For retrieveing and asking a question
+# For retrieving and asking a question
 from utils.embed_query import embed_query
 from utils.retriever import search_qdrant
 from utils.formatter import format_context
 from utils.groq_llm import ask_llama3
-from qdrant_client.http import models as rest
+
+load_dotenv()
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "upload_here")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
@@ -24,13 +25,13 @@ VECTOR_SIZE = 384  # GTE-small outputs 384-d vectors
 
 def load_text_from_file(file_path):
     ext = os.path.splitext(file_path)[-1].lower()
+    contents = []
+    
     if ext == ".json":
-        import json
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            contents = []
             if isinstance(data, dict) and "webSearchResults" in data:
                 for entry in data["webSearchResults"]:
                     if isinstance(entry, list):
@@ -39,7 +40,6 @@ def load_text_from_file(file_path):
                                 cleaned = item["content"].replace("\n", " ").strip()
                                 if cleaned:
                                     contents.append(cleaned)
-
             return contents
 
         except Exception as e:
@@ -47,21 +47,42 @@ def load_text_from_file(file_path):
             return []
         
     elif ext == ".pdf":
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                text += page.extract_text() or ""
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    text += page.extract_text() or ""
+                if text.strip():
+                    contents.append(text)
+        except Exception as e:
+            print(f"Failed to read PDF file: {file_path}\nError: {str(e)}")
+            return []
 
     elif ext == ".docx":
-        doc = Document(file_path)
-        for para in doc.paragraphs:
-            text += para.text + "\n"
+        try:
+            doc = Document(file_path)
+            text = ""
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+            if text.strip():
+                contents.append(text)
+        except Exception as e:
+            print(f"Failed to read DOCX file: {file_path}\nError: {str(e)}")
+            return []
 
     elif ext == ".txt":
-        with open(file_path, "r", encoding="utf-8") as f:
-            text = f.read()
-            return [text] if text.strip() else []
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+                if text.strip():
+                    contents.append(text)
+        except Exception as e:
+            print(f"Failed to read TXT file: {file_path}\nError: {str(e)}")
+            return []
     else:
-        raise ValueError(f"Unsupported file type: {ext}")    
+        raise ValueError(f"Unsupported file type: {ext}")
+    
+    return contents
 
 def chunk_text(text, chunk_size=300):
     words = text.split()
@@ -77,8 +98,8 @@ def embed_chunks(contents, filename):
             embedding = get_embedding(chunk)
             if isinstance(embedding, list) and isinstance(embedding[0], list):
                 embedding = embedding[0]
-            if len(embedding) != 384:
-                raise ValueError("Invalid embedding length")
+            if len(embedding) != VECTOR_SIZE:
+                raise ValueError(f"Invalid embedding length: {len(embedding)}, expected {VECTOR_SIZE}")
 
             point = {
                 "id": str(uuid.uuid4()),
@@ -96,62 +117,107 @@ def embed_chunks(contents, filename):
 
     return points
 
-def run_ingestion_pipeline():
-    #Creating collection
-    create_collection(COLLECTION_NAME, VECTOR_SIZE)
+def get_all_sources_in_collection(client, collection_name):
+    """Get all unique sources in the collection by scrolling through all points"""
+    existing_sources = set()
+    offset = None
+    
+    while True:
+        try:
+            scroll_result = client.scroll(
+                collection_name=collection_name,
+                limit=100,
+                offset=offset,
+                with_payload=True
+            )
+            
+            points, next_offset = scroll_result
+            
+            for point in points:
+                if "source" in point.payload:
+                    existing_sources.add(point.payload["source"])
+            
+            if next_offset is None:
+                break
+            offset = next_offset
+            
+        except Exception as e:
+            print(f"Error scrolling collection: {e}")
+            break
+    
+    return existing_sources
 
-    #Uploading all files in folder
+def run_ingestion_pipeline():
+    # Check if collection exists, if not create it
+    if not collection_exists(COLLECTION_NAME):
+        print(f"Creating collection: {COLLECTION_NAME}")
+        create_collection(COLLECTION_NAME, VECTOR_SIZE)
+    else:
+        print(f"Collection {COLLECTION_NAME} already exists")
+    
+    # Create index for source field (this is idempotent - won't fail if index already exists)
+    print(f"Creating index for 'source' field...")
+    try:
+        create_source_index(COLLECTION_NAME)
+        print("Index created successfully")
+    except Exception as e:
+        print(f"Index creation info: {e}")  # This might fail if index already exists, which is okay
+
+    # Check if upload folder exists
     if not os.path.exists(UPLOAD_FOLDER):
         print(f"Folder '{UPLOAD_FOLDER}' not found.")
         return
 
+    # Initialize Qdrant client
+    client = QdrantClient(
+        url=os.getenv("QDRANT_URL"), 
+        api_key=os.getenv("QDRANT_API_KEY")
+    )
+
+    # Get existing sources using the alternative method
+    print("Checking for existing files...")
+    existing_sources = get_all_sources_in_collection(client, COLLECTION_NAME)
+    print(f"Found {len(existing_sources)} existing files in collection")
+
+    # Process files in upload folder
     for filename in os.listdir(UPLOAD_FOLDER):
         if not filename.lower().endswith((".pdf", ".docx", ".txt", ".json")):
             continue
 
-        #Checking if files is already in DB
-        from qdrant_client import QdrantClient
-        client = QdrantClient(
-            url=os.getenv("QDRANT_URL"), 
-            api_key=os.getenv("QDRANT_API_KEY")
-        )
-
-        #Finding at least one point with this source
-        existing = client.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter=rest.Filter(
-                must=[
-                    rest.FieldCondition(
-                        key="source",
-                        match=rest.MatchValue(value=filename)
-                    )
-                ]
-            ),
-            limit=1
-        )
-
-        if existing and existing[0]:
-            print(f" Skipping '{filename}' — already uploaded.\n")
+        if filename in existing_sources:
+            print(f"Skipping '{filename}' — already uploaded.\n")
             continue
 
-        #Files to split and store
+        # Process and upload the file
         file_path = os.path.join(UPLOAD_FOLDER, filename)
-        print(f" Processing: {filename}")
-        contents = load_text_from_file(file_path)
-        vectors = embed_chunks(contents, filename)
+        print(f"Processing: {filename}")
         
-        response = upsert_vectors(COLLECTION_NAME, vectors)
-        print("Qdrant upsert response:", response)
-        print(" Uploaded", len(vectors), "vectors for", filename, "\n")
+        try:
+            contents = load_text_from_file(file_path)
+            if not contents:
+                print(f"No content found in {filename}, skipping...")
+                continue
+                
+            vectors = embed_chunks(contents, filename)
+            response = upsert_vectors(COLLECTION_NAME, vectors)
+            print("Qdrant upsert response:", response)
+            print(f"Uploaded {len(vectors)} vectors for {filename}\n")
+            
+        except Exception as e:
+            print(f"Error processing {filename}: {str(e)}\n")
 
 # For the query asked by the user
 def run_rag_pipeline(user_question):
-    query_vector = embed_query(user_question)
-    results = search_qdrant(query_vector)
-    context = format_context(results)
-    answer = ask_llama3(context, user_question)
-    print("\n[DEBUG] Retrieved Context:\n", context)
-    return answer
+    try:
+        query_vector = embed_query(user_question)
+        results = search_qdrant(query_vector)
+        context = format_context(results)
+        answer = ask_llama3(context, user_question)
+        print("\n[DEBUG] Retrieved Context:\n", context)
+        return answer
+    except Exception as e:
+        print(f"Error in RAG pipeline: {str(e)}")
+        return "I encountered an error while processing your question."
 
 if __name__ == "__main__":
     mode = input("Choose mode: [1] Ingest Files  [2] Ask a Question: ").strip()
@@ -161,6 +227,6 @@ if __name__ == "__main__":
     elif mode == "2":
         question = input("Ask a question: ")
         answer = run_rag_pipeline(question)
-        print("\n Answer:\n", answer)
+        print("\nAnswer:\n", answer)
     else:
-        print(" Invalid option selected.")                                                                                                                 
+        print("Invalid option selected.")

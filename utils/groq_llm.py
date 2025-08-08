@@ -1,4 +1,4 @@
-# groq_llm.py
+# utils/groq_llm.py
 import requests
 import os
 from dotenv import load_dotenv
@@ -9,6 +9,7 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")  
 
 def ask_llama3(context, question):
+    """Ask a question to Llama3 model with the given context"""
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -40,27 +41,18 @@ Answer:
         "max_tokens": 512
     }
 
-    response = requests.post(GROQ_API_URL, headers=headers, json=payload)
-    response.raise_for_status()
-    answer = response.json()["choices"][0]["message"]["content"].strip()
+    try:
+        response = requests.post(GROQ_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        answer = response.json()["choices"][0]["message"]["content"].strip()
 
-    # Optional: fallback check
-    fallback_message = "I cannot answer such questions."
-    if not answer or fallback_message.lower() in answer.lower():
-        return fallback_message
+        # Optional: fallback check
+        fallback_message = "I cannot answer such questions."
+        if not answer or fallback_message.lower() in answer.lower():
+            return fallback_message
 
-    return answer
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return answer
+        
+    except Exception as e:
+        print(f"Error calling Groq API: {str(e)}")
+        return "I cannot answer such questions."

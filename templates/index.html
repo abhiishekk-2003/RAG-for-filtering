@@ -44,10 +44,21 @@
         .column:hover {
             transform: translateY(-5px);
         }
+
+        .full-width {
+            flex: 1 1 100%;
+            margin-top: 20px;
+        }
     
         h2 {
             font-size: 1.5rem;
             margin-bottom: 15px;
+            color: #1f2937;
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
             color: #1f2937;
         }
     
@@ -64,6 +75,30 @@
             border-radius: 8px;
             font-size: 0.95rem;
             box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-name {
+            flex: 1;
+            word-break: break-all;
+        }
+
+        .delete-btn {
+            background: linear-gradient(to right, #ef4444, #dc2626);
+            color: white;
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-left: 10px;
+            min-width: 60px;
+        }
+
+        .delete-btn:hover {
+            background: linear-gradient(to right, #b91c1c, #991b1b);
         }
     
         .flash-messages {
@@ -78,6 +113,12 @@
             color: #0c4a6e;
             font-weight: 500;
         }
+
+        .flash-messages.error {
+            background-color: #fef2f2;
+            border-color: #fca5a5;
+            color: #991b1b;
+        }
     
         .answer-box {
             background-color: #f3f4f6;
@@ -88,6 +129,50 @@
             white-space: pre-wrap;
             font-family: 'Courier New', monospace;
             color: #1e293b;
+            max-height: 400px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .typing-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background-color: #1e293b;
+            animation: blink 1s infinite;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .loading-dots {
+            display: inline-block;
+            position: relative;
+        }
+
+        .loading-dots::after {
+            content: '...';
+            animation: dots 2s infinite;
+        }
+
+        @keyframes dots {
+            0% { content: ''; }
+            25% { content: '.'; }
+            50% { content: '..'; }
+            75% { content: '...'; }
+        }
+
+        .question-box {
+            background-color: #eff6ff;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #93c5fd;
+            margin-bottom: 15px;
+            color: #1e40af;
+            font-weight: 500;
         }
     
         input[type="text"],
@@ -138,16 +223,66 @@
         .clear-btn {
             background: linear-gradient(to right, #ef4444, #dc2626);
             margin-top: 10px;
+            margin-right: 10px;
         }
     
         .clear-btn:hover {
             background: linear-gradient(to right, #b91c1c, #991b1b);
+        }
+
+        .secondary-btn {
+            background: linear-gradient(to right, #6b7280, #4b5563);
+            font-size: 0.9rem;
+            padding: 8px 16px;
+        }
+
+        .secondary-btn:hover {
+            background: linear-gradient(to right, #374151, #1f2937);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .file-count {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .supported-formats {
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin-top: 5px;
         }
     
         @media (max-width: 768px) {
             .container {
                 flex-direction: column;
                 align-items: center;
+            }
+
+            .file-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .delete-btn {
+                margin-left: 0;
+                align-self: flex-end;
+            }
+
+            .button-group {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .button-group button {
+                width: 100%;
             }
         }
     </style>    
@@ -168,19 +303,30 @@
         <div class="column">
             <h2>📁 Upload Documents</h2>
             <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
-                <input type="file" name="file" multiple accept=".pdf,.docx,.txt">
+                <input type="file" name="file" multiple accept=".pdf,.docx,.txt,.json">
+                <div class="supported-formats">
+                    📋 Supported formats: PDF, DOCX, TXT, JSON
+                </div>
                 <input type="submit" value="Upload and Process">
             </form>
 
             <div class="file-list">
                 <h3>📄 Uploaded Files</h3>
                 {% if files %}
+                    <div class="file-count">{{ files|length }} file(s) uploaded</div>
                     {% for file in files %}
-                        <div class="file-item">{{ file }}</div>
+                        <div class="file-item">
+                            <span class="file-name">{{ file }}</span>
+                            <form action="{{ url_for('delete_file', filename=file) }}" method="post" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete {{ file }}?')">
+                                <button type="submit" class="delete-btn">🗑️</button>
+                            </form>
+                        </div>
                     {% endfor %}
-                    <form action="{{ url_for('clear_uploads') }}" method="post">
-                        <button type="submit" class="clear-btn">🗑️ Clear All Files</button>
-                    </form>
+                    <div class="button-group">
+                        <form action="{{ url_for('clear_uploads') }}" method="post" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete all files?')">
+                            <button type="submit" class="clear-btn">🗑️ Clear All Files</button>
+                        </form>
+                    </div>
                 {% else %}
                     <p>No files uploaded yet.</p>
                 {% endif %}
@@ -190,15 +336,117 @@
         <div class="column">
             <h2>❓ Ask a Question</h2>
             <form action="{{ url_for('ask_question') }}" method="post">
-                <textarea name="question" placeholder="Ask something about your uploaded documents...">{{ session.get('question', '') }}</textarea>
+                <textarea name="question" placeholder="Ask something about your uploaded documents...">{{ question if question else '' }}</textarea>
                 <input type="submit" value="Ask">
             </form>
 
-            {% if session.get('answer') %}
+            {% if question and answer %}
+            <div class="full-width">
+                <h3>❓ Your Question:</h3>
+                <div class="question-box">{{ question }}</div>
+                
                 <h3>✅ Answer:</h3>
-                <div class="answer-box">{{ session.get('answer') }}</div>
+                <div class="answer-box" id="answer-display">
+                    <span class="loading-dots" id="loading">Thinking</span>
+                </div>
+                
+                <div class="button-group">
+                    <form action="{{ url_for('clear_session') }}" method="post" style="display: inline;">
+                        <button type="submit" class="secondary-btn">Clear Q&A</button>
+                    </form>
+                </div>
+            </div>
             {% endif %}
         </div>
+
+        {% if question and answer %}
+        <div class="column full-width">
+            <h2>💬 Question & Answer</h2>
+            <div class="question-box">
+                <strong>Q:</strong> {{ question }}
+            </div>
+            <div class="answer-box" id="answer-display-full">
+                <strong>A:</strong> <span class="loading-dots" id="loading-full">Thinking</span>
+            </div>
+            <div class="button-group">
+                <form action="{{ url_for('clear_session') }}" method="post" style="display: inline;">
+                    <button type="submit" class="secondary-btn">Clear Q&A</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
+    <script>
+        // Typing effect function
+        function typeWriter(element, text, speed = 100) {
+            let i = 0;
+            element.innerHTML = '';
+            
+            function type() {
+                if (i < text.length) {
+                    element.innerHTML += text.charAt(i);
+                    i++;
+                    setTimeout(type, speed);
+                } else {
+                    // Add blinking cursor at the end
+                    const cursor = document.createElement('span');
+                    cursor.className = 'typing-cursor';
+                    element.appendChild(cursor);
+                    
+                    // Remove cursor after 3 seconds
+                    setTimeout(() => {
+                        if (cursor.parentNode) {
+                            cursor.parentNode.removeChild(cursor);
+                        }
+                    }, 3000);
+                }
+            }
+            
+            type();
+        }
+
+        // Initialize typing effect when page loads
+        window.addEventListener('load', function() {
+            const answer = `{{ answer|safe|replace('\n', '\\n')|replace('"', '\\"') }}`;
+            
+            if (answer && answer.trim() !== '') {
+                // For the main answer box
+                const answerDisplay = document.getElementById('answer-display');
+                const loadingElement = document.getElementById('loading');
+                
+                if (answerDisplay && loadingElement) {
+                    // Hide loading dots after a short delay
+                    setTimeout(() => {
+                        loadingElement.style.display = 'none';
+                        typeWriter(answerDisplay, answer, 25);
+                    }, 800);
+                }
+                
+                // For the full-width answer box
+                const answerDisplayFull = document.getElementById('answer-display-full');
+                const loadingElementFull = document.getElementById('loading-full');
+                
+                if (answerDisplayFull && loadingElementFull) {
+                    setTimeout(() => {
+                        loadingElementFull.style.display = 'none';
+                        typeWriter(answerDisplayFull, 'A: ' + answer, 25);
+                    }, 800);
+                }
+            }
+        });
+
+        // Show loading state when asking a question
+        document.addEventListener('DOMContentLoaded', function() {
+            const questionForm = document.querySelector('form[action="{{ url_for("ask_question") }}"]');
+            const submitButton = questionForm.querySelector('input[type="submit"]');
+            
+            questionForm.addEventListener('submit', function() {
+                submitButton.value = 'Processing...';
+                submitButton.disabled = true;
+            });
+        });
+    </script>
+
 </body>
+</html>
